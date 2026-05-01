@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rock Paper Scissors</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✂️</text></svg>" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --radius: 14px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(160deg, var(--bg) 0%, #111827 50%, #0c1222 100%);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3rem;
+    }
+    h1 {
+      text-align: center;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      font-size: clamp(1.6rem, 5vw, 2rem);
+      margin: 0.5rem 0 1.25rem;
+    }
+    .mode-row {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .mode-row label {
+      cursor: pointer;
+      padding: 0.5rem 1rem;
+      border-radius: 999px;
+      border: 2px solid #334155;
+      background: var(--surface);
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .mode-row input {
+      position: absolute;
+      opacity: 0;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+    .mode-row label:has(input:checked) {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.15);
+      color: #e0f2fe;
+    }
+    .mode-row label:has(input:focus-visible) {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .caption {
+      flex: 1;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .caption strong { color: #cbd5e1; }
+    button.reset {
+      flex-shrink: 0;
+      padding: 0.45rem 1rem;
+      border-radius: 10px;
+      border: 1px solid #475569;
+      background: #334155;
+      color: var(--text);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.reset:hover { background: #475569; }
+    .hint {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    .hint.info {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #bae6fd;
+    }
+    .hint.warn {
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.4);
+      color: #fde68a;
+    }
+    .choices {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .choices button {
+      flex: 1;
+      min-width: 6.5rem;
+      max-width: 12rem;
+      padding: 0.85rem 0.5rem;
+      font-size: 1rem;
+      font-weight: 700;
+      border-radius: 12px;
+      border: 2px solid #475569;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform 0.1s, border-color 0.15s;
+    }
+    .choices button:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .choices button:active { transform: translateY(0); }
+    .foot-caption {
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+    hr.divider {
+      border: none;
+      border-top: 1px solid #334155;
+      margin: 1.5rem 0;
+    }
+    .rps-banner {
+      text-align: center;
+      font-size: clamp(1.35rem, 4vw, 1.85rem);
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      padding: 1rem 1.25rem;
+      border-radius: var(--radius);
+      margin: 0.75rem 0 1rem;
+    }
+    .rps-win {
+      background: linear-gradient(180deg, #ecfdf5 0%, #a7f3d0 100%);
+      color: #064e3b;
+      border: 2px solid #10b981;
+    }
+    .rps-loss {
+      background: linear-gradient(180deg, #fef2f2 0%, #fecdd3 100%);
+      color: #7f1d1d;
+      border: 2px solid #f43f5e;
+    }
+    .rps-tie {
+      background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+      color: #1e293b;
+      border: 2px solid #64748b;
+    }
+    .rps-p2-win {
+      background: linear-gradient(180deg, #eff6ff 0%, #bfdbfe 100%);
+      color: #1e3a8a;
+      border: 2px solid #3b82f6;
+    }
+    .rps-picks {
+      display: flex;
+      justify-content: center;
+      gap: 2.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+    }
+    .rps-pick { text-align: center; min-width: 8rem; }
+    .rps-pick span {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.35rem;
+    }
+    .rps-pick strong { font-size: 1.25rem; }
+    .chart-block {
+      margin-top: 1.25rem;
+      padding: 1rem;
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: var(--radius);
+      border: 1px solid #334155;
+    }
+    .chart-block h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .chart-wrap { position: relative; height: 220px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Rock Paper Scissors</h1>
+
+    <div class="mode-row" role="radiogroup" aria-label="Play mode">
+      <label><input type="radio" name="mode" value="solo" checked /><span>vs Computer</span></label>
+      <label><input type="radio" name="mode" value="multi" /><span>Two players (same screen)</span></label>
+    </div>
+
+    <div class="toolbar">
+      <p class="caption" id="statsCaption">No rounds yet · saved in this browser</p>
+      <button type="button" class="reset" id="btnReset" title="Clear all rounds and saved history">Reset</button>
+    </div>
+
+    <div id="phaseHint" class="hint info" hidden></div>
+
+    <div class="choices" id="choiceButtons" aria-label="Moves"></div>
+    <p class="foot-caption" id="footCaption">Pick rock, paper, or scissors to play the computer.</p>
+
+    <hr class="divider" id="bottomSection" hidden />
+
+    <div id="lastRound" hidden></div>
+
+    <div id="chartSolo" class="chart-block" hidden>
+      <h3>Solo — cumulative wins vs losses</h3>
+      <div class="chart-wrap"><canvas id="canvasSolo"></canvas></div>
+    </div>
+    <div id="chartMulti" class="chart-block" hidden>
+      <h3>Two-player — cumulative wins</h3>
+      <div class="chart-wrap"><canvas id="canvasMulti"></canvas></div>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  const STORAGE_KEY = "rps_history_v1";
+  const CHOICE_LABEL = { rock: "Rock 🪨", paper: "Paper 📄", scissors: "Scissors ✂️" };
+  const CHOICES = ["rock", "paper", "scissors"];
+
+  const elCaption = document.getElementById("statsCaption");
+  const elHint = document.getElementById("phaseHint");
+  const elChoices = document.getElementById("choiceButtons");
+  const elFoot = document.getElementById("footCaption");
+  const elBottom = document.getElementById("bottomSection");
+  const elLast = document.getElementById("lastRound");
+  const elChartSolo = document.getElementById("chartSolo");
+  const elChartMulti = document.getElementById("chartMulti");
+
+  let rounds = [];
+  let multiP1Choice = null;
+  let choiceOrder = shuffleOrder();
+  let chartSoloInst = null;
+  let chartMultiInst = null;
+  let audioCtx = null;
+
+  function shuffleOrder() {
+    const a = CHOICES.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function judge(user, opponent) {
+    if (user === opponent) return "tie";
+    if (
+      (user === "rock" && opponent === "scissors") ||
+      (user === "paper" && opponent === "rock") ||
+      (user === "scissors" && opponent === "paper")
+    ) return "win";
+    return "loss";
+  }
+
+  function judgeTwoPlayer(p1, p2) {
+    const r = judge(p1, p2);
+    if (r === "tie") return "tie";
+    return r === "win" ? "player1" : "player2";
+  }
+
+  function randomComputer() {
+    return CHOICES[Math.floor(Math.random() * CHOICES.length)];
+  }
+
+  function loadRounds() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      const data = JSON.parse(raw);
+      const list = data.rounds;
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveRounds() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ rounds }));
+  }
+
+  function summarizeSolo() {
+    let wins = 0, losses = 0, ties = 0;
+    for (const r of rounds) {
+      if ((r.mode || "solo") !== "solo") continue;
+      const o = r.outcome;
+      if (o === "win") wins++;
+      else if (o === "loss") losses++;
+      else if (o === "tie") ties++;
+    }
+    return [wins, losses, ties];
+  }
+
+  function summarizeMulti() {
+    let p1w = 0, p2w = 0, ties = 0;
+    for (const r of rounds) {
+      if (r.mode !== "multi") continue;
+      const res = r.result;
+      if (res === "player1") p1w++;
+      else if (res === "player2") p2w++;
+      else if (res === "tie") ties++;
+    }
+    return [p1w, p2w, ties];
+  }
+
+  function recordCaption() {
+    const [sw, sl, st] = summarizeSolo();
+    const [m1, m2, mt] = summarizeMulti();
+    const parts = [];
+    if (sw + sl + st > 0) parts.push(`Solo: <strong>${sw}</strong>W · <strong>${sl}</strong>L · <strong>${st}</strong>T`);
+    if (m1 + m2 + mt > 0) parts.push(`Two-player: <strong>${m1}</strong>–<strong>${m2}</strong>–<strong>${mt}</strong> (P1 · P2 · ties)`);
+    if (!parts.length) return "No rounds yet · saved in this browser";
+    return parts.join(" · ") + " · saved in this browser";
+  }
+
+  function isoNow() {
+    return new Date().toISOString();
+  }
+
+  function playTone(kind) {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = audioCtx;
+      const now = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.15, now);
+
+      function beep(freq, start, dur) {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.setValueAtTime(freq, start);
+        o.connect(gain);
+        o.start(start);
+        o.stop(start + dur);
+      }
+
+      if (kind === "win") {
+        beep(523.25, now, 0.1);
+        beep(659.25, now + 0.12, 0.1);
+        beep(783.99, now + 0.24, 0.16);
+      } else if (kind === "loss") {
+        beep(185, now, 0.16);
+        beep(110, now + 0.18, 0.2);
+      } else {
+        beep(392, now, 0.1);
+        beep(392, now + 0.13, 0.1);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  function outcomeSoundMulti(result) {
+    const map = { player1: "win", player2: "loss", tie: "tie" };
+    playTone(map[result] || "tie");
+  }
+
+  function getMode() {
+    const checked = document.querySelector('input[name="mode"]:checked');
+    return checked && checked.value === "multi" ? "multi" : "solo";
+  }
+
+  function renderLastRound(last) {
+    if (!last) {
+      elLast.hidden = true;
+      elLast.innerHTML = "";
+      return;
+    }
+    elLast.hidden = false;
+    const mode = last.mode || "solo";
+
+    if (mode === "multi") {
+      const result = last.result;
+      const p1 = CHOICE_LABEL[last.p1];
+      const p2 = CHOICE_LABEL[last.p2];
+      let bannerClass = "rps-tie";
+      let text = "Tie";
+      if (result === "player1") { bannerClass = "rps-win"; text = "Player 1 wins"; }
+      else if (result === "player2") { bannerClass = "rps-p2-win"; text = "Player 2 wins"; }
+      elLast.innerHTML =
+        `<div class="rps-banner ${bannerClass}">${text}</div>` +
+        `<div class="rps-picks">` +
+        `<div class="rps-pick"><span>Player 1</span><strong>${p1}</strong></div>` +
+        `<div class="rps-pick"><span>Player 2</span><strong>${p2}</strong></div>` +
+        `</div>`;
+      return;
+    }
+
+    const outcome = last.outcome;
+    const you = CHOICE_LABEL[last.user];
+    const cpu = CHOICE_LABEL[last.computer];
+    let bannerClass = "rps-tie";
+    let text = "Tie";
+    if (outcome === "win") { bannerClass = "rps-win"; text = "You win"; }
+    else if (outcome === "loss") { bannerClass = "rps-loss"; text = "You lose"; }
+    elLast.innerHTML =
+      `<div class="rps-banner ${bannerClass}">${text}</div>` +
+      `<div class="rps-picks">` +
+      `<div class="rps-pick"><span>You</span><strong>${you}</strong></div>` +
+      `<div class="rps-pick"><span>Computer</span><strong>${cpu}</strong></div>` +
+      `</div>`;
+  }
+
+  function destroyChart(inst) {
+    if (inst) { inst.destroy(); }
+    return null;
+  }
+
+  function renderCharts() {
+    chartSoloInst = destroyChart(chartSoloInst);
+    chartMultiInst = destroyChart(chartMultiInst);
+
+    const solo = rounds.filter((r) => (r.mode || "solo") === "solo");
+    const multi = rounds.filter((r) => r.mode === "multi");
+
+    if (!solo.length) {
+      elChartSolo.hidden = true;
+    } else {
+      elChartSolo.hidden = false;
+      let w = 0, l = 0;
+      const labels = [];
+      const wins = [];
+      const losses = [];
+      solo.forEach((r, i) => {
+        if (r.outcome === "win") w++;
+        else if (r.outcome === "loss") l++;
+        labels.push(String(i + 1));
+        wins.push(w);
+        losses.push(l);
+      });
+      const ctx = document.getElementById("canvasSolo").getContext("2d");
+      chartSoloInst = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Wins", data: wins, borderColor: "#10b981", backgroundColor: "rgba(16,185,129,0.2)", tension: 0.25, fill: false },
+            { label: "Losses", data: losses, borderColor: "#f43f5e", backgroundColor: "rgba(244,63,94,0.2)", tension: 0.25, fill: false },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#cbd5e1" } } },
+          scales: {
+            x: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } },
+            y: { ticks: { color: "#94a3b8", stepSize: 1 }, grid: { color: "#334155" }, beginAtZero: true },
+          },
+        },
+      });
+    }
+
+    if (!multi.length) {
+      elChartMulti.hidden = true;
+    } else {
+      elChartMulti.hidden = false;
+      let p1w = 0, p2w = 0;
+      const labels = [];
+      const s1 = [];
+      const s2 = [];
+      multi.forEach((r, i) => {
+        if (r.result === "player1") p1w++;
+        else if (r.result === "player2") p2w++;
+        labels.push(String(i + 1));
+        s1.push(p1w);
+        s2.push(p2w);
+      });
+      const ctx2 = document.getElementById("canvasMulti").getContext("2d");
+      chartMultiInst = new Chart(ctx2, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Player 1", data: s1, borderColor: "#10b981", tension: 0.25, fill: false },
+            { label: "Player 2", data: s2, borderColor: "#3b82f6", tension: 0.25, fill: false },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#cbd5e1" } } },
+          scales: {
+            x: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } },
+            y: { ticks: { color: "#94a3b8", stepSize: 1 }, grid: { color: "#334155" }, beginAtZero: true },
+          },
+        },
+      });
+    }
+  }
+
+  function renderChoices() {
+    elChoices.innerHTML = "";
+    choiceOrder.forEach((key) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = CHOICE_LABEL[key];
+      btn.dataset.choice = key;
+      btn.addEventListener("click", () => onPick(key));
+      elChoices.appendChild(btn);
+    });
+  }
+
+  function onPick(key) {
+    const mode = getMode();
+    if (mode === "solo") {
+      const computer = randomComputer();
+      const outcome = judge(key, computer);
+      rounds.push({
+        mode: "solo",
+        ts: isoNow(),
+        user: key,
+        computer,
+        outcome,
+      });
+      choiceOrder = shuffleOrder();
+      playTone(outcome);
+    } else {
+      if (multiP1Choice === null) {
+        multiP1Choice = key;
+        choiceOrder = shuffleOrder();
+      } else {
+        const result = judgeTwoPlayer(multiP1Choice, key);
+        rounds.push({
+          mode: "multi",
+          ts: isoNow(),
+          p1: multiP1Choice,
+          p2: key,
+          result,
+        });
+        multiP1Choice = null;
+        choiceOrder = shuffleOrder();
+        outcomeSoundMulti(result);
+      }
+    }
+    saveRounds();
+    syncUI();
+  }
+
+  function syncUI() {
+    elCaption.innerHTML = recordCaption();
+    const mode = getMode();
+
+    if (mode === "solo") {
+      multiP1Choice = null;
+      elHint.hidden = true;
+      elFoot.textContent = "Pick rock, paper, or scissors to play the computer.";
+    } else {
+      elHint.hidden = false;
+      elHint.className = "hint " + (multiP1Choice === null ? "info" : "warn");
+      elHint.innerHTML = multiP1Choice === null
+        ? "<strong>Player 1</strong> — choose your move."
+        : "Pass the screen to <strong>Player 2</strong> (no peeking) — then choose a move.";
+      elFoot.textContent = multiP1Choice === null
+        ? "Same device, two people — player 1 picks first, then player 2."
+        : "Player 2: pick your move.";
+    }
+
+    if (rounds.length) {
+      elBottom.hidden = false;
+      renderLastRound(rounds[rounds.length - 1]);
+      renderCharts();
+    } else {
+      elBottom.hidden = true;
+      elLast.hidden = true;
+      elChartSolo.hidden = true;
+      elChartMulti.hidden = true;
+      chartSoloInst = destroyChart(chartSoloInst);
+      chartMultiInst = destroyChart(chartMultiInst);
+    }
+
+    renderChoices();
+  }
+
+  document.querySelectorAll('input[name="mode"]').forEach((inp) => {
+    inp.addEventListener("change", () => {
+      choiceOrder = shuffleOrder();
+      if (getMode() === "solo") multiP1Choice = null;
+      syncUI();
+    });
+  });
+
+  document.getElementById("btnReset").addEventListener("click", () => {
+    rounds = [];
+    multiP1Choice = null;
+    choiceOrder = shuffleOrder();
+    localStorage.removeItem(STORAGE_KEY);
+    syncUI();
+  });
+
+  rounds = loadRounds();
+  syncUI();
+})();
+  </script>
+</body>
+</html>
