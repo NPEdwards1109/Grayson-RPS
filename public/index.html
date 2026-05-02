@@ -77,23 +77,71 @@
       gap: 1rem;
       margin-bottom: 1rem;
     }
-    .caption {
+    .caption-col {
       flex: 1;
+      min-width: 0;
+    }
+    .caption {
+      margin: 0;
       font-size: 0.85rem;
       color: var(--muted);
     }
     .caption strong { color: #cbd5e1; }
-    button.reset {
+    .caption-date {
+      margin: 0.2rem 0 0;
+      font-size: 0.7rem;
+      color: #64748b;
+      letter-spacing: 0.02em;
+    }
+    .match-banner {
+      padding: 0.65rem 1rem;
+      border-radius: 10px;
+      text-align: center;
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 0.75rem;
+    }
+    .match-banner.win {
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid #10b981;
+      color: #6ee7b7;
+    }
+    .match-banner.loss {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid #f43f5e;
+      color: #fda4af;
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 0.5rem;
       flex-shrink: 0;
+      align-items: flex-start;
+    }
+    button.save,
+    button.reset {
       padding: 0.45rem 1rem;
       border-radius: 10px;
-      border: 1px solid #475569;
-      background: #334155;
-      color: var(--text);
       font-weight: 600;
       cursor: pointer;
     }
+    button.save {
+      border: 1px solid rgba(56, 189, 248, 0.55);
+      background: rgba(56, 189, 248, 0.18);
+      color: #e0f2fe;
+    }
+    button.save:hover { background: rgba(56, 189, 248, 0.28); }
+    button.reset {
+      border: 1px solid #475569;
+      background: #334155;
+      color: var(--text);
+    }
     button.reset:hover { background: #475569; }
+    .save-toast {
+      margin: -0.5rem 0 0.75rem;
+      font-size: 0.85rem;
+      color: #6ee7b7;
+      text-align: right;
+    }
     .hint {
       padding: 0.75rem 1rem;
       border-radius: var(--radius);
@@ -210,6 +258,13 @@
       letter-spacing: 0.05em;
     }
     .chart-wrap { position: relative; height: 220px; }
+    .bo3-match {
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: 0 0 0.75rem;
+    }
+    .bo3-match strong { color: #cbd5e1; }
   </style>
 </head>
 <body>
@@ -218,13 +273,25 @@
 
     <div class="mode-row" role="radiogroup" aria-label="Play mode">
       <label><input type="radio" name="mode" value="solo" checked /><span>vs Computer</span></label>
+      <label><input type="radio" name="mode" value="bo3" /><span>Best of 3 vs Computer</span></label>
       <label><input type="radio" name="mode" value="multi" /><span>Two players (same screen)</span></label>
     </div>
 
     <div class="toolbar">
-      <p class="caption" id="statsCaption">No rounds yet · saved in this browser</p>
-      <button type="button" class="reset" id="btnReset" title="Clear all rounds and saved history">Reset</button>
+      <div class="caption-col">
+        <p class="caption" id="statsCaption">No rounds yet · saved in this browser</p>
+        <p class="caption-date" id="captionDate"></p>
+      </div>
+      <div class="toolbar-actions">
+        <button type="button" class="save" id="btnSave" title="Save history to this browser">Save</button>
+        <button type="button" class="reset" id="btnReset" title="Clear all rounds and saved history">Reset</button>
+      </div>
     </div>
+    <p class="save-toast" id="saveToast" hidden aria-live="polite">Saved.</p>
+
+    <div id="matchBanner" class="match-banner" hidden role="status"></div>
+
+    <p class="bo3-match" id="bo3MatchScore" hidden></p>
 
     <div id="phaseHint" class="hint info" hidden></div>
 
@@ -236,7 +303,7 @@
     <div id="lastRound" hidden></div>
 
     <div id="chartSolo" class="chart-block" hidden>
-      <h3>Solo — cumulative wins vs losses</h3>
+      <h3>Solo &amp; best of 3 — cumulative wins vs losses</h3>
       <div class="chart-wrap"><canvas id="canvasSolo"></canvas></div>
     </div>
     <div id="chartMulti" class="chart-block" hidden>
@@ -252,6 +319,9 @@
   const CHOICES = ["rock", "paper", "scissors"];
 
   const elCaption = document.getElementById("statsCaption");
+  const elCaptionDate = document.getElementById("captionDate");
+  const elMatchBanner = document.getElementById("matchBanner");
+  const elBo3Match = document.getElementById("bo3MatchScore");
   const elHint = document.getElementById("phaseHint");
   const elChoices = document.getElementById("choiceButtons");
   const elFoot = document.getElementById("footCaption");
@@ -262,6 +332,10 @@
 
   let rounds = [];
   let multiP1Choice = null;
+  let bo3You = 0;
+  let bo3Cpu = 0;
+  /** @type {null | "you" | "cpu"} */
+  let bo3FlashBanner = null;
   let choiceOrder = shuffleOrder();
   let chartSoloInst = null;
   let chartMultiInst = null;
@@ -324,6 +398,18 @@
     return [wins, losses, ties];
   }
 
+  function summarizeBo3() {
+    let wins = 0, losses = 0, ties = 0;
+    for (const r of rounds) {
+      if (r.mode !== "solo_bo3") continue;
+      const o = r.outcome;
+      if (o === "win") wins++;
+      else if (o === "loss") losses++;
+      else if (o === "tie") ties++;
+    }
+    return [wins, losses, ties];
+  }
+
   function summarizeMulti() {
     let p1w = 0, p2w = 0, ties = 0;
     for (const r of rounds) {
@@ -338,9 +424,11 @@
 
   function recordCaption() {
     const [sw, sl, st] = summarizeSolo();
+    const [b3w, b3l, b3t] = summarizeBo3();
     const [m1, m2, mt] = summarizeMulti();
     const parts = [];
     if (sw + sl + st > 0) parts.push(`Solo: <strong>${sw}</strong>W · <strong>${sl}</strong>L · <strong>${st}</strong>T`);
+    if (b3w + b3l + b3t > 0) parts.push(`Best of 3 (rounds): <strong>${b3w}</strong>W · <strong>${b3l}</strong>L · <strong>${b3t}</strong>T`);
     if (m1 + m2 + mt > 0) parts.push(`Two-player: <strong>${m1}</strong>–<strong>${m2}</strong>–<strong>${mt}</strong> (P1 · P2 · ties)`);
     if (!parts.length) return "No rounds yet · saved in this browser";
     return parts.join(" · ") + " · saved in this browser";
@@ -389,7 +477,10 @@
 
   function getMode() {
     const checked = document.querySelector('input[name="mode"]:checked');
-    return checked && checked.value === "multi" ? "multi" : "solo";
+    const v = checked ? checked.value : "solo";
+    if (v === "multi") return "multi";
+    if (v === "bo3") return "bo3";
+    return "solo";
   }
 
   function renderLastRound(last) {
@@ -418,6 +509,12 @@
       return;
     }
 
+    if (mode !== "solo" && mode !== "solo_bo3") {
+      elLast.hidden = true;
+      elLast.innerHTML = "";
+      return;
+    }
+
     const outcome = last.outcome;
     const you = CHOICE_LABEL[last.user];
     const cpu = CHOICE_LABEL[last.computer];
@@ -442,7 +539,10 @@
     chartSoloInst = destroyChart(chartSoloInst);
     chartMultiInst = destroyChart(chartMultiInst);
 
-    const solo = rounds.filter((r) => (r.mode || "solo") === "solo");
+    const solo = rounds.filter((r) => {
+      const m = r.mode || "solo";
+      return m === "solo" || m === "solo_bo3";
+    });
     const multi = rounds.filter((r) => r.mode === "multi");
 
     if (!solo.length) {
@@ -546,6 +646,31 @@
       });
       choiceOrder = shuffleOrder();
       playTone(outcome);
+    } else if (mode === "bo3") {
+      const computer = randomComputer();
+      const outcome = judge(key, computer);
+      rounds.push({
+        mode: "solo_bo3",
+        ts: isoNow(),
+        user: key,
+        computer,
+        outcome,
+      });
+      choiceOrder = shuffleOrder();
+      playTone(outcome);
+      let matchEnd = null;
+      if (outcome === "win") {
+        bo3You += 1;
+        if (bo3You >= 2) matchEnd = "you";
+      } else if (outcome === "loss") {
+        bo3Cpu += 1;
+        if (bo3Cpu >= 2) matchEnd = "cpu";
+      }
+      if (matchEnd) {
+        bo3FlashBanner = matchEnd;
+        bo3You = 0;
+        bo3Cpu = 0;
+      }
     } else {
       if (multiP1Choice === null) {
         multiP1Choice = key;
@@ -570,12 +695,48 @@
 
   function syncUI() {
     elCaption.innerHTML = recordCaption();
+    try {
+      elCaptionDate.textContent = new Date().toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch {
+      elCaptionDate.textContent = "";
+    }
     const mode = getMode();
+
+    if (bo3FlashBanner === "you") {
+      elMatchBanner.hidden = false;
+      elMatchBanner.className = "match-banner win";
+      elMatchBanner.textContent = "You won the match — first to 2 wins!";
+      bo3FlashBanner = null;
+    } else if (bo3FlashBanner === "cpu") {
+      elMatchBanner.hidden = false;
+      elMatchBanner.className = "match-banner loss";
+      elMatchBanner.textContent = "Computer won the match — first to 2 wins!";
+      bo3FlashBanner = null;
+    } else {
+      elMatchBanner.hidden = true;
+      elMatchBanner.textContent = "";
+    }
+
+    if (mode === "bo3") {
+      elBo3Match.hidden = false;
+      elBo3Match.innerHTML =
+        `This match: <strong>${bo3You}</strong>–<strong>${bo3Cpu}</strong> (first to 2 wins · ties replay)`;
+    } else {
+      elBo3Match.hidden = true;
+    }
 
     if (mode === "solo") {
       multiP1Choice = null;
       elHint.hidden = true;
       elFoot.textContent = "Pick rock, paper, or scissors to play the computer.";
+    } else if (mode === "bo3") {
+      multiP1Choice = null;
+      elHint.hidden = true;
+      elFoot.textContent = "Win two rounds before the computer does. Ties do not change the match score.";
     } else {
       elHint.hidden = false;
       elHint.className = "hint " + (multiP1Choice === null ? "info" : "warn");
@@ -606,14 +767,34 @@
   document.querySelectorAll('input[name="mode"]').forEach((inp) => {
     inp.addEventListener("change", () => {
       choiceOrder = shuffleOrder();
-      if (getMode() === "solo") multiP1Choice = null;
+      multiP1Choice = null;
+      bo3You = 0;
+      bo3Cpu = 0;
+      bo3FlashBanner = null;
       syncUI();
     });
+  });
+
+  function flashSaved() {
+    const t = document.getElementById("saveToast");
+    t.hidden = false;
+    clearTimeout(flashSaved._timer);
+    flashSaved._timer = setTimeout(() => {
+      t.hidden = true;
+    }, 2000);
+  }
+
+  document.getElementById("btnSave").addEventListener("click", () => {
+    saveRounds();
+    flashSaved();
   });
 
   document.getElementById("btnReset").addEventListener("click", () => {
     rounds = [];
     multiP1Choice = null;
+    bo3You = 0;
+    bo3Cpu = 0;
+    bo3FlashBanner = null;
     choiceOrder = shuffleOrder();
     localStorage.removeItem(STORAGE_KEY);
     syncUI();

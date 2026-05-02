@@ -18,6 +18,7 @@ HISTORY_PATH = Path(__file__).resolve().parent / "rps_history.json"
 CHOICE_LABEL = {"rock": "Rock 🪨", "paper": "Paper 📄", "scissors": "Scissors ✂️"}
 
 MODE_COMPUTER = "vs Computer"
+MODE_BO3 = "vs Computer (best of 3)"
 MODE_MULTI = "Two players (same screen)"
 
 CHOICES = ("rock", "paper", "scissors")
@@ -48,6 +49,8 @@ def save_rounds(rounds: list[dict]) -> None:
 def reset_all() -> None:
     st.session_state.rounds = []
     st.session_state.multi_p1_choice = None
+    st.session_state.bo3_you = 0
+    st.session_state.bo3_cpu = 0
     shuffle_choice_order()
     if HISTORY_PATH.exists():
         HISTORY_PATH.unlink()
@@ -58,6 +61,10 @@ def init_session() -> None:
         st.session_state.rounds = load_rounds()
     if "multi_p1_choice" not in st.session_state:
         st.session_state.multi_p1_choice = None
+    if "bo3_you" not in st.session_state:
+        st.session_state.bo3_you = 0
+    if "bo3_cpu" not in st.session_state:
+        st.session_state.bo3_cpu = 0
 
 
 def play_solo(user_choice: str) -> None:
@@ -74,6 +81,37 @@ def play_solo(user_choice: str) -> None:
     save_rounds(st.session_state.rounds)
     shuffle_choice_order()
     play_outcome(outcome)
+
+
+def play_solo_bo3(user_choice: str) -> None:
+    computer = random_computer_choice()
+    outcome = judge(user_choice, computer)
+    row = {
+        "mode": "solo_bo3",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "user": user_choice,
+        "computer": computer,
+        "outcome": outcome,
+    }
+    st.session_state.rounds.append(row)
+    save_rounds(st.session_state.rounds)
+    shuffle_choice_order()
+    play_outcome(outcome)
+
+    match_end: str | None = None
+    if outcome == "win":
+        st.session_state.bo3_you += 1
+        if st.session_state.bo3_you >= 2:
+            match_end = "you"
+    elif outcome == "loss":
+        st.session_state.bo3_cpu += 1
+        if st.session_state.bo3_cpu >= 2:
+            match_end = "cpu"
+
+    if match_end:
+        st.session_state.bo3_you = 0
+        st.session_state.bo3_cpu = 0
+        st.session_state.bo3_match_banner = match_end
 
 
 def play_multi_p1(pick: str) -> None:
@@ -121,6 +159,21 @@ def summarize_solo(rounds: list[dict]) -> tuple[int, int, int]:
     return wins, losses, ties
 
 
+def summarize_solo_bo3(rounds: list[dict]) -> tuple[int, int, int]:
+    wins = losses = ties = 0
+    for r in rounds:
+        if r.get("mode") != "solo_bo3":
+            continue
+        o = r.get("outcome")
+        if o == "win":
+            wins += 1
+        elif o == "loss":
+            losses += 1
+        elif o == "tie":
+            ties += 1
+    return wins, losses, ties
+
+
 def summarize_multi(rounds: list[dict]) -> tuple[int, int, int]:
     p1w = p2w = ties = 0
     for r in rounds:
@@ -138,11 +191,14 @@ def summarize_multi(rounds: list[dict]) -> tuple[int, int, int]:
 
 def record_caption(rounds: list[dict]) -> str:
     sw, sl, st_ = summarize_solo(rounds)
+    b3w, b3l, b3t = summarize_solo_bo3(rounds)
     m1, m2, mt = summarize_multi(rounds)
     tail = "saved automatically"
     parts: list[str] = []
     if sw + sl + st_ > 0:
         parts.append(f"Solo: **{sw}**W · **{sl}**L · **{st_}**T")
+    if b3w + b3l + b3t > 0:
+        parts.append(f"Best of 3 (rounds): **{b3w}**W · **{b3l}**L · **{b3t}**T")
     if m1 + m2 + mt > 0:
         parts.append(f"Two-player: **{m1}**–**{m2}**–**{mt}** (P1 wins · P2 wins · ties)")
     if not parts:
@@ -206,6 +262,12 @@ def inject_styles() -> None:
 .rps-pick strong {
   font-size: 1.35rem;
 }
+.rps-date {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin: 0.15rem 0 0 0;
+  letter-spacing: 0.02em;
+}
 </style>
 """,
         unsafe_allow_html=True,
@@ -240,6 +302,9 @@ def render_last_round(last: dict) -> None:
 """,
             unsafe_allow_html=True,
         )
+        return
+
+    if mode not in ("solo", "solo_bo3"):
         return
 
     outcome = last["outcome"]
@@ -280,14 +345,14 @@ def render_charts(rounds: list[dict]) -> None:
     df = df_normalize_modes(df)
     df["ts"] = pd.to_datetime(df["ts"], utc=True)
 
-    solo = df[df["mode"] == "solo"].sort_values("ts")
+    solo = df[df["mode"].isin(["solo", "solo_bo3"])].sort_values("ts")
     multi = df[df["mode"] == "multi"].sort_values("ts")
 
     if len(solo):
         solo = solo.copy()
         solo["wins"] = (solo["outcome"] == "win").cumsum()
         solo["losses"] = (solo["outcome"] == "loss").cumsum()
-        st.caption("Solo — cumulative wins vs losses (you vs computer)")
+        st.caption("Solo & best of 3 — cumulative wins vs losses (you vs computer)")
         st.line_chart(solo.set_index("ts")[["wins", "losses"]])
 
     if len(multi):
@@ -305,23 +370,43 @@ def main() -> None:
 
     rounds = st.session_state.rounds
 
+    banner = st.session_state.pop("bo3_match_banner", None)
+    if banner == "you":
+        st.success("You won the match — first to 2 wins!")
+    elif banner == "cpu":
+        st.error("Computer won the match — first to 2 wins!")
+
     st.title("Rock Paper Scissors")
     mode = st.radio(
         "Play as",
-        [MODE_COMPUTER, MODE_MULTI],
+        [MODE_COMPUTER, MODE_BO3, MODE_MULTI],
         horizontal=True,
         key="play_mode",
     )
-    if st.session_state.play_mode == MODE_COMPUTER:
+    if st.session_state.play_mode in (MODE_COMPUTER, MODE_BO3):
         st.session_state.multi_p1_choice = None
 
     if st.session_state.get("_order_mode") != mode:
         shuffle_choice_order()
         st.session_state._order_mode = mode
+        st.session_state.bo3_you = 0
+        st.session_state.bo3_cpu = 0
 
-    row_cap, row_reset = st.columns([4, 1])
+    row_cap, row_save, row_reset = st.columns([3, 1, 1])
     with row_cap:
         st.caption(record_caption(rounds))
+        st.markdown(
+            f'<p class="rps-date">{datetime.now().strftime("%b %d, %Y")}</p>',
+            unsafe_allow_html=True,
+        )
+    with row_save:
+        if st.button(
+            "Save",
+            use_container_width=True,
+            help="Write current history to rps_history.json",
+        ):
+            save_rounds(st.session_state.rounds)
+            st.success("Saved.")
     with row_reset:
         if st.button(
             "Reset",
@@ -330,6 +415,12 @@ def main() -> None:
         ):
             reset_all()
             st.rerun()
+
+    if mode == MODE_BO3:
+        st.caption(
+            f"This match: **{st.session_state.bo3_you}**–**{st.session_state.bo3_cpu}** "
+            "(first to 2 wins · ties replay)"
+        )
 
     if mode == MODE_MULTI:
         if st.session_state.multi_p1_choice is None:
@@ -350,6 +441,11 @@ def main() -> None:
                 if st.button(CHOICE_LABEL[key], use_container_width=True, key=btn_key):
                     play_solo(key)
                     st.rerun()
+            elif mode == MODE_BO3:
+                btn_key = f"bo3_{key}"
+                if st.button(CHOICE_LABEL[key], use_container_width=True, key=btn_key):
+                    play_solo_bo3(key)
+                    st.rerun()
             elif st.session_state.multi_p1_choice is None:
                 btn_key = f"m1_{key}"
                 if st.button(CHOICE_LABEL[key], use_container_width=True, key=btn_key):
@@ -363,6 +459,8 @@ def main() -> None:
 
     if mode == MODE_COMPUTER:
         st.caption("Pick rock, paper, or scissors to play the computer.")
+    elif mode == MODE_BO3:
+        st.caption("Win two rounds before the computer does. Ties do not change the match score.")
     elif st.session_state.multi_p1_choice is None:
         st.caption("Same device, two people — player 1 picks first, then player 2.")
 
