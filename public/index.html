@@ -111,6 +111,11 @@
       border: 1px solid #f43f5e;
       color: #fda4af;
     }
+    .match-banner.p2-match {
+      background: rgba(59, 130, 246, 0.18);
+      border: 1px solid #3b82f6;
+      color: #93c5fd;
+    }
     .toolbar-actions {
       display: flex;
       gap: 0.5rem;
@@ -275,6 +280,7 @@
       <label><input type="radio" name="mode" value="solo" checked /><span>vs Computer</span></label>
       <label><input type="radio" name="mode" value="bo3" /><span>Best of 3 vs Computer</span></label>
       <label><input type="radio" name="mode" value="multi" /><span>Two players (same screen)</span></label>
+      <label><input type="radio" name="mode" value="multi_bo3" /><span>Two players (best of 3)</span></label>
     </div>
 
     <div class="toolbar">
@@ -292,6 +298,7 @@
     <div id="matchBanner" class="match-banner" hidden role="status"></div>
 
     <p class="bo3-match" id="bo3MatchScore" hidden></p>
+    <p class="bo3-match" id="multiBo3MatchScore" hidden></p>
 
     <div id="phaseHint" class="hint info" hidden></div>
 
@@ -307,7 +314,7 @@
       <div class="chart-wrap"><canvas id="canvasSolo"></canvas></div>
     </div>
     <div id="chartMulti" class="chart-block" hidden>
-      <h3>Two-player — cumulative wins</h3>
+      <h3>Two-player &amp; two-player Bo3 — cumulative round wins</h3>
       <div class="chart-wrap"><canvas id="canvasMulti"></canvas></div>
     </div>
   </div>
@@ -322,6 +329,7 @@
   const elCaptionDate = document.getElementById("captionDate");
   const elMatchBanner = document.getElementById("matchBanner");
   const elBo3Match = document.getElementById("bo3MatchScore");
+  const elMultiBo3Match = document.getElementById("multiBo3MatchScore");
   const elHint = document.getElementById("phaseHint");
   const elChoices = document.getElementById("choiceButtons");
   const elFoot = document.getElementById("footCaption");
@@ -336,10 +344,18 @@
   let bo3Cpu = 0;
   /** @type {null | "you" | "cpu"} */
   let bo3FlashBanner = null;
-  let choiceOrder = shuffleOrder();
+  let multiBo3P1 = 0;
+  let multiBo3P2 = 0;
+  /** @type {null | "player1" | "player2"} */
+  let multiBo3FlashBanner = null;
+  let choiceOrder = fixedOrder();
   let chartSoloInst = null;
   let chartMultiInst = null;
   let audioCtx = null;
+
+  function fixedOrder() {
+    return CHOICES.slice();
+  }
 
   function shuffleOrder() {
     const a = CHOICES.slice();
@@ -348,6 +364,11 @@
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
+  }
+
+  function syncChoiceOrderToMode() {
+    const m = getMode();
+    choiceOrder = m === "multi" || m === "multi_bo3" ? shuffleOrder() : fixedOrder();
   }
 
   function judge(user, opponent) {
@@ -422,14 +443,28 @@
     return [p1w, p2w, ties];
   }
 
+  function summarizeMultiBo3() {
+    let p1w = 0, p2w = 0, ties = 0;
+    for (const r of rounds) {
+      if (r.mode !== "multi_bo3") continue;
+      const res = r.result;
+      if (res === "player1") p1w++;
+      else if (res === "player2") p2w++;
+      else if (res === "tie") ties++;
+    }
+    return [p1w, p2w, ties];
+  }
+
   function recordCaption() {
     const [sw, sl, st] = summarizeSolo();
     const [b3w, b3l, b3t] = summarizeBo3();
     const [m1, m2, mt] = summarizeMulti();
+    const [mb1, mb2, mbt] = summarizeMultiBo3();
     const parts = [];
     if (sw + sl + st > 0) parts.push(`Solo: <strong>${sw}</strong>W · <strong>${sl}</strong>L · <strong>${st}</strong>T`);
     if (b3w + b3l + b3t > 0) parts.push(`Best of 3 (rounds): <strong>${b3w}</strong>W · <strong>${b3l}</strong>L · <strong>${b3t}</strong>T`);
     if (m1 + m2 + mt > 0) parts.push(`Two-player: <strong>${m1}</strong>–<strong>${m2}</strong>–<strong>${mt}</strong> (P1 · P2 · ties)`);
+    if (mb1 + mb2 + mbt > 0) parts.push(`Two-player Bo3 (rounds): <strong>${mb1}</strong>–<strong>${mb2}</strong>–<strong>${mbt}</strong> (P1 · P2 · ties)`);
     if (!parts.length) return "No rounds yet · saved in this browser";
     return parts.join(" · ") + " · saved in this browser";
   }
@@ -478,6 +513,7 @@
   function getMode() {
     const checked = document.querySelector('input[name="mode"]:checked');
     const v = checked ? checked.value : "solo";
+    if (v === "multi_bo3") return "multi_bo3";
     if (v === "multi") return "multi";
     if (v === "bo3") return "bo3";
     return "solo";
@@ -492,7 +528,7 @@
     elLast.hidden = false;
     const mode = last.mode || "solo";
 
-    if (mode === "multi") {
+    if (mode === "multi" || mode === "multi_bo3") {
       const result = last.result;
       const p1 = CHOICE_LABEL[last.p1];
       const p2 = CHOICE_LABEL[last.p2];
@@ -543,7 +579,7 @@
       const m = r.mode || "solo";
       return m === "solo" || m === "solo_bo3";
     });
-    const multi = rounds.filter((r) => r.mode === "multi");
+    const multi = rounds.filter((r) => r.mode === "multi" || r.mode === "multi_bo3");
 
     if (!solo.length) {
       elChartSolo.hidden = true;
@@ -644,7 +680,6 @@
         computer,
         outcome,
       });
-      choiceOrder = shuffleOrder();
       playTone(outcome);
     } else if (mode === "bo3") {
       const computer = randomComputer();
@@ -656,7 +691,6 @@
         computer,
         outcome,
       });
-      choiceOrder = shuffleOrder();
       playTone(outcome);
       let matchEnd = null;
       if (outcome === "win") {
@@ -671,7 +705,7 @@
         bo3You = 0;
         bo3Cpu = 0;
       }
-    } else {
+    } else if (mode === "multi") {
       if (multiP1Choice === null) {
         multiP1Choice = key;
         choiceOrder = shuffleOrder();
@@ -687,6 +721,36 @@
         multiP1Choice = null;
         choiceOrder = shuffleOrder();
         outcomeSoundMulti(result);
+      }
+    } else if (mode === "multi_bo3") {
+      if (multiP1Choice === null) {
+        multiP1Choice = key;
+        choiceOrder = shuffleOrder();
+      } else {
+        const result = judgeTwoPlayer(multiP1Choice, key);
+        rounds.push({
+          mode: "multi_bo3",
+          ts: isoNow(),
+          p1: multiP1Choice,
+          p2: key,
+          result,
+        });
+        multiP1Choice = null;
+        choiceOrder = shuffleOrder();
+        outcomeSoundMulti(result);
+        let matchEnd = null;
+        if (result === "player1") {
+          multiBo3P1 += 1;
+          if (multiBo3P1 >= 2) matchEnd = "player1";
+        } else if (result === "player2") {
+          multiBo3P2 += 1;
+          if (multiBo3P2 >= 2) matchEnd = "player2";
+        }
+        if (matchEnd) {
+          multiBo3FlashBanner = matchEnd;
+          multiBo3P1 = 0;
+          multiBo3P2 = 0;
+        }
       }
     }
     saveRounds();
@@ -706,7 +770,17 @@
     }
     const mode = getMode();
 
-    if (bo3FlashBanner === "you") {
+    if (multiBo3FlashBanner === "player1") {
+      elMatchBanner.hidden = false;
+      elMatchBanner.className = "match-banner win";
+      elMatchBanner.textContent = "Player 1 won the match — first to 2 wins!";
+      multiBo3FlashBanner = null;
+    } else if (multiBo3FlashBanner === "player2") {
+      elMatchBanner.hidden = false;
+      elMatchBanner.className = "match-banner p2-match";
+      elMatchBanner.textContent = "Player 2 won the match — first to 2 wins!";
+      multiBo3FlashBanner = null;
+    } else if (bo3FlashBanner === "you") {
       elMatchBanner.hidden = false;
       elMatchBanner.className = "match-banner win";
       elMatchBanner.textContent = "You won the match — first to 2 wins!";
@@ -729,6 +803,14 @@
       elBo3Match.hidden = true;
     }
 
+    if (mode === "multi_bo3") {
+      elMultiBo3Match.hidden = false;
+      elMultiBo3Match.innerHTML =
+        `This match: <strong>${multiBo3P1}</strong>–<strong>${multiBo3P2}</strong> (first to 2 round wins · ties replay)`;
+    } else {
+      elMultiBo3Match.hidden = true;
+    }
+
     if (mode === "solo") {
       multiP1Choice = null;
       elHint.hidden = true;
@@ -737,7 +819,7 @@
       multiP1Choice = null;
       elHint.hidden = true;
       elFoot.textContent = "Win two rounds before the computer does. Ties do not change the match score.";
-    } else {
+    } else if (mode === "multi") {
       elHint.hidden = false;
       elHint.className = "hint " + (multiP1Choice === null ? "info" : "warn");
       elHint.innerHTML = multiP1Choice === null
@@ -745,6 +827,15 @@
         : "Pass the screen to <strong>Player 2</strong> (no peeking) — then choose a move.";
       elFoot.textContent = multiP1Choice === null
         ? "Same device, two people — player 1 picks first, then player 2."
+        : "Player 2: pick your move.";
+    } else if (mode === "multi_bo3") {
+      elHint.hidden = false;
+      elHint.className = "hint " + (multiP1Choice === null ? "info" : "warn");
+      elHint.innerHTML = multiP1Choice === null
+        ? "<strong>Player 1</strong> — choose your move."
+        : "Pass the screen to <strong>Player 2</strong> (no peeking) — then choose a move.";
+      elFoot.textContent = multiP1Choice === null
+        ? "First to win two rounds wins the match. Ties do not change the match score. Same device — player 1 picks first."
         : "Player 2: pick your move.";
     }
 
@@ -766,11 +857,14 @@
 
   document.querySelectorAll('input[name="mode"]').forEach((inp) => {
     inp.addEventListener("change", () => {
-      choiceOrder = shuffleOrder();
+      syncChoiceOrderToMode();
       multiP1Choice = null;
       bo3You = 0;
       bo3Cpu = 0;
       bo3FlashBanner = null;
+      multiBo3P1 = 0;
+      multiBo3P2 = 0;
+      multiBo3FlashBanner = null;
       syncUI();
     });
   });
@@ -795,7 +889,10 @@
     bo3You = 0;
     bo3Cpu = 0;
     bo3FlashBanner = null;
-    choiceOrder = shuffleOrder();
+    multiBo3P1 = 0;
+    multiBo3P2 = 0;
+    multiBo3FlashBanner = null;
+    syncChoiceOrderToMode();
     localStorage.removeItem(STORAGE_KEY);
     syncUI();
   });
